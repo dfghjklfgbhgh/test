@@ -82,7 +82,7 @@ class MockPool(threading.Thread):
         self.share_diff = float(share_diff)
         self.job_interval = job_interval
         self.jobs = {}
-        self.target = DIFF1_TARGET // self.share_diff
+        self.target = int(DIFF1_TARGET // self.share_diff)
         self.accepted = 0
         self.rejected = 0
         self.reasons = Counter()
