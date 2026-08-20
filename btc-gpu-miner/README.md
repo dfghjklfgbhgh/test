@@ -207,6 +207,45 @@ python3 pool_connector.py --pool stratum+tcp://127.0.0.1:17014 --worker demo/1 -
 
 ---
 
+## Real-pool test results (Kryptex, `btc.kryptex.network:7014`)
+
+Tested live with worker `krxYRPV4WQ.0x` (the exact pipeline, no mock):
+
+* subscribe / authorize: **OK** (`extranonce1` + `extranonce2_size=6` issued)
+* `mining.suggest_difficulty [0.00001]`: **ignored** — pool kept difficulty
+* pool difficulty set: **524288** (share target `0x0000000000001fff...`,
+  i.e. the first **51 bits** of the block hash must be zero → `2^51` hashes per share)
+* a real job was mined (2.5–3 M nonces, ~20 s) and the **best share** was submitted
+
+```
+POOL RESPONSE: {"id": 3, "result": false, "error": [-1, "Invalid share", null]}
+```
+
+Control tests against the same pool to interpret that answer:
+
+| submitted | pool response |
+|---|---|
+| well-formed share, fresh job, below target | `[-1, "Invalid share"]` |
+| unknown job id | `[21, "Job not found"]` |
+| malformed extranonce2 / bad nonce | *(silently dropped, no response)* |
+
+**Verdict: shares are NOT accepted by the real pool** — because the hash
+does not meet the pool's share target, not because the pipeline is broken:
+* the pool parses our shares, matches them to a real job and validates them
+  (garbage is dropped, unknown jobs get a distinct error, well-formed shares
+  get a real hash-vs-target verdict);
+* the identical code **does** get `ACCEPTED` at a feasible difficulty (mock pool);
+* the gap is pure hashrate: our best hash after 3 M tries had the first
+  21 bits zero; the pool needs 51 → ~2³⁰ ≈ 1 billion × more work, i.e.
+  ~163,000 days per share at this CPU's 0.16 MH/s (≈52 days even at
+  500 MH/s on a fast GPU).
+
+Re-run the test any time:
+
+```bash
+python3 real_pool_test.py --worker krxYRPV4WQ.0x --max-nonces 2500000
+```
+
 ## Troubleshooting
 
 * **authorize failed** — check the worker string (Kryptex format is
