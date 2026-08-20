@@ -22,6 +22,10 @@ machines, connected only through GitHub files:
 The GitHub repo is just a mailbox: **jobs.txt** carries work to the miner,
 **shares.txt** carries results back.
 
+> Repo layout: the code lives in the `btc-gpu-miner/` folder; the mailbox
+> files **`jobs.txt`** and **`shares.txt`** live at the repository **root**
+> (that is what the config points at).
+
 ---
 
 ## ⚠️ Read this first (honest engineering notes)
@@ -41,15 +45,17 @@ The GitHub repo is just a mailbox: **jobs.txt** carries work to the miner,
 
 3. The connector was tested live against `stratum+tcp://btc.kryptex.network:7014`
    with your worker string `krxYRPV4WQ.0x` — subscribe and authorize both
-   succeed.
+   succeed, and real jobs were received and pushed to `jobs.txt` in the repo
+   (the pool starts at difficulty 1 and ramps up as it estimates your hashrate;
+   after a while it sends ~262144, which is far beyond any GPU/Python miner).
 
 ---
 
 ## Files
 
-| file | purpose |
+| file (in `btc-gpu-miner/`) | purpose |
 |---|---|
-| `pool_connector.py` | Stratum v1 client + GitHub Contents-API sync (pure stdlib). Pushes jobs to GitHub `jobs.txt`; watches GitHub `shares.txt`, submits new shares to the pool, then clears the file. |
+| `pool_connector.py` | Stratum v1 client + GitHub Contents-API sync (pure stdlib). Pushes jobs to the repo-root GitHub `jobs.txt`; watches GitHub `shares.txt`, submits new shares to the pool, then clears the file. |
 | `bitcoin_miner.py` | Reads `jobs.txt`, mines the block-header nonce with a vectorised SHA-256d kernel in PyTorch (CUDA or CPU), writes shares to `shares.txt`. |
 | `mock_pool.py` | Local Stratum test pool that *independently validates* every share (recomputes coinbase → merkle → header → double-SHA-256). |
 | `verify_mining.py` | Proves the crypto against **real mined Bitcoin blocks** (blockstream.info) plus torch-vs-hashlib equivalence. |
