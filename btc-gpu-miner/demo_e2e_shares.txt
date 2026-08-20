@@ -1,0 +1,13 @@
+[
+  {
+    "share_id": "ebcaaeb319d2742c",
+    "job_id": "mock0001",
+    "extranonce1": "",
+    "extranonce2": "9e9c28a6e37e",
+    "ntime": "6a871f29",
+    "nonce": "0000fc30",
+    "hash": "0001266687dd0434e9122d2141d27d82b996042549f8c6d3995219bf5bf111db",
+    "difficulty": 1e-05,
+    "found_at": "2026-08-20T15:37:17Z"
+  }
+]
