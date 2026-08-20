@@ -1,0 +1,24 @@
+[
+  {
+    "received_at": 1787240624.3538146,
+    "job_id": "mock0001",
+    "prevhash": "9da9c60a38235a7cbbc1cab845f8a30ae5c8e8a781662a44bf159dadcf20016f",
+    "coinb1": "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff2203e6f90d6d6f636b20706f6f6c20636f696e62617365",
+    "coinb2": "ffffffff0000000000",
+    "merkle_branch": [
+      "2f94c2f64233de59148af32b596dd7a4e34119b2bfdf7c8142d1c13331ed9354",
+      "233232d3348f74247ebd20683ddde90f4d7df0acb43d5bda0c394fddfd08b329",
+      "3b3ee07cdf87c6ad638bce46822bfd516b2c6320b6f4a130b2766eb2685e6576"
+    ],
+    "version": "20000000",
+    "nbits": "1d00ffff",
+    "ntime": "6a8720b0",
+    "clean_jobs": true,
+    "extranonce1": "df510eb0e65c",
+    "extranonce2_size": 6,
+    "share_diff": 1e-05,
+    "share_target_hex": "0001869e795ffffff00000000000000000000000000000000000000000000000",
+    "pool": "stratum+tcp://127.0.0.1:17014",
+    "worker": "demo/1"
+  }
+]
