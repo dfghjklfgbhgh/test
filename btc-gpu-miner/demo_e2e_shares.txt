@@ -1,0 +1,24 @@
+[
+  {
+    "share_id": "b51421a7357fe22a",
+    "job_id": "mock0001",
+    "extranonce1": "942a183156c0",
+    "extranonce2": "4f4e1fb73304",
+    "ntime": "6a87200e",
+    "nonce": "0000b12e",
+    "hash": "00017f9f1ab3db0dd537718d7a17d806e856859e45a219c30208939adf034462",
+    "difficulty": 1e-05,
+    "found_at": "2026-08-20T15:41:07Z"
+  },
+  {
+    "share_id": "bb8ecb1c5a56a503",
+    "job_id": "mock0001",
+    "extranonce1": "942a183156c0",
+    "extranonce2": "4f4e1fb73304",
+    "ntime": "6a87200e",
+    "nonce": "0000d6b9",
+    "hash": "000045574f868b704830599fa3d54dd9494c6d40da49e50fc76cca05acf4e0de",
+    "difficulty": 1e-05,
+    "found_at": "2026-08-20T15:41:07Z"
+  }
+]
