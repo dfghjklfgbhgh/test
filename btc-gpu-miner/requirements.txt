@@ -1,0 +1,7 @@
+# bitcoin_miner.py needs PyTorch (CUDA build on the GPU machine).
+# On your GPU machine install with CUDA, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   (check https://pytorch.org/get-started/locally/ for your CUDA version)
+torch>=2.0
+
+# pool_connector.py and mock_pool.py use ONLY the Python standard library.
