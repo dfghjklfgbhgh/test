@@ -1,0 +1,6 @@
+# Never commit secrets / local state
+config.json
+.env
+progress.json
+__pycache__/
+*.pyc
