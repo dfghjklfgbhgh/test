@@ -1,0 +1,16 @@
+{
+  "pool_url": "stratum+tcp://btc.kryptex.network:7014",
+  "worker": "krxYRPV4WQ.0x",
+  "password": "x",
+  "github": {
+    "token_env": "GITHUB_TOKEN",
+    "owner": "dfghjklfgbhgh",
+    "repo": "test",
+    "branch": "main",
+    "jobs_path": "jobs.txt",
+    "shares_path": "shares.txt"
+  },
+  "poll_interval_sec": 10,
+  "keep_jobs": 5,
+  "min_job_push_interval_sec": 15
+}
