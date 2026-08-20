@@ -186,9 +186,9 @@ class StratumClient(object):
         with self._send_lock:
             self.sock.sendall((json.dumps(obj) + "\n").encode())
 
-    def _request(self, msg, timeout=15):
+    def _request(self, msg, timeout=15, require_connected=True):
         """Send a request and wait for the matching response."""
-        if not self.connected.is_set():
+        if require_connected and not self.connected.is_set():
             raise StratumDisconnected("pool not connected")
         with self._pending_lock:
             self._next_id += 1
@@ -218,40 +218,90 @@ class StratumClient(object):
     def _run(self):
         while not self.stop_evt.is_set():
             try:
-                self._connect_once()
+                self._connect_and_handshake()
             except Exception as e:
                 self.on_status(f"connection error: {e}")
-            self.connected.clear()
+                try:
+                    if self.sock:
+                        self.sock.close()
+                except Exception:
+                    pass
+            # wait until the reader thread reports the connection dropped
+            while not self.stop_evt.is_set() and self.connected.is_set():
+                time.sleep(1)
             if not self.stop_evt.is_set():
                 time.sleep(5)  # reconnect backoff
 
-    def _connect_once(self):
+    def _connect_and_handshake(self):
         self.on_status(f"connecting to {self.host}:{self.port} ...")
         s = socket.create_connection((self.host, self.port), timeout=15)
-        s.settimeout(5)
         self.sock = s
         self.connected.clear()
+        self._buf = b""
 
-        # -- subscribe
-        res = self._request({"method": "mining.subscribe",
-                             "params": ["python-pool-connector/1.0"]})
+        # -- subscribe: read the response inline so the extranonce is stored
+        #    before any mining.notify can be dispatched (deterministic order)
+        res = self._request_inline(s, {"method": "mining.subscribe",
+                                       "params": ["python-pool-connector/1.0"]})
         self.extranonce1 = res[1]
         self.extranonce2_size = res[2]
         self.on_status(f"subscribed extranonce1={self.extranonce1} "
                        f"extranonce2_size={self.extranonce2_size}")
 
-        # -- authorize
-        res = self._request({"method": "mining.authorize",
-                             "params": [self.worker, self.password]})
+        # -- authorize (also inline)
+        res = self._request_inline(s, {"method": "mining.authorize",
+                                       "params": [self.worker, self.password]})
         if res is not True:
-            self.on_status(f"authorize FAILED for worker {self.worker!r} - check the wallet string")
+            self.on_status(f"authorize FAILED for worker {self.worker!r} "
+                           f"- check the wallet string")
             self.sock.close()
             return
         self.on_status(f"authorized worker {self.worker!r}")
         self.connected.set()
         self.on_ready(self.extranonce1, self.extranonce2_size)
 
-        # -- reader loop
+        # -- handshake done: switch to the background reader thread
+        threading.Thread(target=self._reader_loop, args=(s,), daemon=True).start()
+
+    def _readline_inline(self, s, timeout):
+        s.settimeout(timeout)
+        while b"\n" not in self._buf:
+            chunk = s.recv(65536)
+            if not chunk:
+                raise StratumDisconnected("connection closed during handshake")
+            self._buf += chunk
+        line, self._buf = self._buf.split(b"\n", 1)
+        return line.strip()
+
+    def _request_inline(self, s, msg, timeout=20):
+        """Send a request and read the response on the calling thread
+        (used only for the subscribe/authorize handshake)."""
+        with self._pending_lock:
+            self._next_id += 1
+            rid = self._next_id
+        msg = dict(msg)
+        msg["id"] = rid
+        self.send(msg)
+        while True:
+            line = self._readline_inline(s, timeout)
+            if not line:
+                continue
+            try:
+                resp = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(resp, dict) and resp.get("id") == rid and "method" not in resp:
+                if resp.get("error") is not None:
+                    raise StratumDisconnected(f"pool error: {resp['error']}")
+                return resp.get("result")
+            # anything else arriving during the handshake: dispatch normally
+            try:
+                self._handle(resp)
+            except Exception:
+                pass
+
+    def _reader_loop(self, s):
+        s.settimeout(5)
         buf = b""
         quiet_loops = 0
         while not self.stop_evt.is_set():
@@ -285,6 +335,7 @@ class StratumClient(object):
                 except Exception as e:
                     self.on_status(f"handler error: {e}")
         self.on_status("connection closed")
+        self.connected.clear()
         try:
             s.close()
         except Exception:
@@ -354,6 +405,10 @@ class ConnectorApp(object):
     def handle_job(self, params):
         (job_id, prevhash, coinb1, coinb2, merkle_branch,
          version, nbits, ntime, clean_jobs) = params[:9]
+        # prefer the client's extranonce (set right after subscribe, before
+        # any notify can be dispatched), fall back to the app-level copy
+        en1 = (getattr(self.stratum, "extranonce1", None)
+               or self.extranonce1 or "")
         record = {
             "received_at": time.time(),
             "job_id": job_id,
@@ -365,7 +420,7 @@ class ConnectorApp(object):
             "nbits": nbits,
             "ntime": ntime,
             "clean_jobs": bool(clean_jobs),
-            "extranonce1": self.extranonce1,
+            "extranonce1": en1,
             "extranonce2_size": self.extranonce2_size,
             "share_diff": self.diff,
             "share_target_hex": f"{target_from_diff(self.diff):064x}",
@@ -390,7 +445,12 @@ class ConnectorApp(object):
     def handle_ready(self, extranonce1, size):
         self.extranonce1 = extranonce1
         self.extranonce2_size = int(size)
+        with self.jobs_lock:
+            for j in self.jobs:
+                if not j.get("extranonce1"):
+                    j["extranonce1"] = extranonce1
         log(f"extranonce1={extranonce1} extranonce2_size={size}")
+        self.push_queue.put(("jobs", None))   # re-push corrected records
 
     # -- GitHub push worker (own thread so the pool reader never blocks) ---
     def push_worker(self):
@@ -412,6 +472,8 @@ class ConnectorApp(object):
         with self.jobs_lock:
             content = json.dumps(self.jobs, indent=2)
             n_jobs = len(self.jobs)
+        if n_jobs == 0:
+            return   # never overwrite a good jobs.txt with an empty list
         res = self.github.get_file(self.jobs_path)
         if res == "unchanged":
             self.last_push = now
