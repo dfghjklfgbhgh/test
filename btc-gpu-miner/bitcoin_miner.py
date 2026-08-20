@@ -362,6 +362,8 @@ class Miner(object):
         self.batch = args.batch
         if self.batch > 2 ** 16 and self.device.type == "cpu":
             self.batch = 2 ** 16
+        self.cur_en2 = None
+        self.best = None      # (display_int, display_hex, nonce, meets_target)
 
     # ---------------------------------------------------------------- job
     def load_job(self):
@@ -399,6 +401,52 @@ class Miner(object):
         except Exception:
             pass
 
+    def _track_best(self, d2, nonces, job, target):
+        """Track the lowest displayed hash seen (lexicographic min of the
+        byte-swapped digest words == min of the displayed 256-bit hash)."""
+        x = d2.to(torch.int64) & 0xFFFFFFFF
+        B = d2.shape[0]
+        sentinel = (1 << 63) - 1
+        tied = torch.ones(B, dtype=torch.bool, device=d2.device)
+        best = torch.zeros((), dtype=torch.int64, device=d2.device)
+        for i in range(8):
+            wi = _bswap64(x[:, 7 - i])
+            masked = torch.where(tied, wi, torch.full_like(wi, sentinel))
+            m = masked.min()
+            pick = (tied & (wi == m)).nonzero(as_tuple=False)
+            if pick.numel():
+                best = pick[0, 0]
+            tied = tied & (wi == m)
+        b = int(best)
+        n = int(nonces[b])
+        words = [int(d2[b, k].item()) & MASK32 for k in range(8)]
+        display = (b"".join(w.to_bytes(4, "big") for w in words)[::-1]).hex()
+        cur = int(display, 16)
+        if self.best is None or cur < self.best[0]:
+            self.best = (cur, display, n, cur <= target)
+            self._write_best(job, target)
+
+    def _write_best(self, job, target):
+        if self.best is None:
+            return
+        _, display, n, meets = self.best
+        data = {
+            "job_id": job["job_id"],
+            "extranonce2": self.cur_en2 or "",
+            "ntime": job["ntime"],
+            "nonce": f"{n:08x}",
+            "hash": display,
+            "target_hex": f"{target:064x}",
+            "meets_target": bool(meets),
+        }
+        try:
+            tmp = self.args.best_hash + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp, self.args.best_hash)
+        except Exception:
+            pass
+
     def _new_extranonce2(self, job):
         size = int(job.get("extranonce2_size", 6)) * 2
         return "".join(random.choice("0123456789abcdef") for _ in range(size))
@@ -419,6 +467,7 @@ class Miner(object):
         if extranonce2 is None:
             extranonce2 = self._new_extranonce2(job)
             nonce = 0
+        self.cur_en2 = extranonce2
         pre = precompute_job(job, extranonce2, self.device)
         print(f"[miner] job {job['job_id']}  extranonce2={extranonce2}  "
               f"diff={job.get('share_diff')}  target=0x{target:064x}")
@@ -435,12 +484,14 @@ class Miner(object):
                 if B <= 0:                       # nonce space exhausted -> roll extranonce2
                     nonce = 0
                     extranonce2 = self._new_extranonce2(job)
+                    self.cur_en2 = extranonce2
                     pre = precompute_job(job, extranonce2, self.device)
                     print(f"[miner] nonce space exhausted, new extranonce2={extranonce2}")
                     B = self.batch
 
                 nonces = torch.arange(nonce, nonce + B, dtype=torch.int64, device=self.device)
                 d2 = self.sha.hash_headers(nonces, pre)
+                self._track_best(d2, nonces, job, target)
                 mask = compare_le(d2, tw)
 
                 if mask.any():
@@ -469,6 +520,7 @@ class Miner(object):
                               f"(+{added} new in shares.txt)")
                     if args.stop_on_share:
                         self._save_progress(job, extranonce2, nonce + B)
+                        self._write_best(job, target)
                         print("[miner] --stop-on-share: exiting")
                         return 0
 
@@ -484,9 +536,11 @@ class Miner(object):
                     last_report = now
                     window_hashes = 0
                     self._save_progress(job, extranonce2, nonce)
+                    self._write_best(job, target)
 
                 if args.max_nonces and total >= args.max_nonces:
                     self._save_progress(job, extranonce2, nonce)
+                    self._write_best(job, target)
                     print(f"[miner] reached --max-nonces {total}")
                     return 0
 
@@ -498,8 +552,10 @@ class Miner(object):
                         new_job = self.load_job()
                         if new_job and new_job["job_id"] != job["job_id"]:
                             self._save_progress(job, extranonce2, nonce)
+                            self._write_best(job, target)
                             job = new_job
                             extranonce2 = self._new_extranonce2(job)
+                            self.cur_en2 = extranonce2
                             nonce = 0
                             pre = precompute_job(job, extranonce2, self.device)
                             target = int(job.get("share_target_hex") or "0", 16)
@@ -510,6 +566,7 @@ class Miner(object):
         except KeyboardInterrupt:
             print("\n[miner] interrupted - progress saved")
             self._save_progress(job, extranonce2, nonce)
+            self._write_best(job, target)
             return 0
 
     def _jobs_mtime(self):
@@ -530,6 +587,8 @@ def main():
     ap.add_argument("--stop-on-share", action="store_true", help="exit after first share")
     ap.add_argument("--check-interval", type=float, default=20, help="jobs.txt re-check period")
     ap.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
+    ap.add_argument("--best-hash", default="best_hash.json",
+                    help="file to write the best hash found (for diagnostics)")
     args = ap.parse_args()
     sys.exit(Miner(args).run() or 0)
 
