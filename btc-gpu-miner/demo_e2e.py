@@ -121,6 +121,8 @@ def main():
     if not token:
         sys.exit("set GITHUB_TOKEN first")
 
+    import shutil
+    shutil.rmtree(LOCAL_DIR, ignore_errors=True)   # start clean
     os.makedirs(LOCAL_DIR, exist_ok=True)
     local_jobs = os.path.join(LOCAL_DIR, "jobs.txt")
     local_shares = os.path.join(LOCAL_DIR, "shares.txt")
